@@ -1,0 +1,16 @@
+{
+  "format": "dispatcher-program/1",
+  "rules": {
+    "format": "trust-rules/1",
+    "repositories": ["mark1russell7/runner-gate-test"],
+    "events": ["workflow_dispatch", "pull_request"],
+    "actors": ["mark1russell7"]
+  },
+  "times": { "format": "machine-times/1", "make": 60, "register": 120, "idle": 120, "job": 600, "retry": 5, "retryMax": 40, "pass": 10 },
+  "settings": { "format": "dispatch-settings/1", "prefix": "gate", "capacity": 2, "sizes": ["small"], "standard": "small" },
+  "loop": { "sleep": 5, "bound": 2, "retry": 1, "retryMax": 2, "close": 0.5 },
+  "profile": "local",
+  "stop": "/tmp/rd/stop",
+  "github": {},
+  "folder": { "root": "/tmp/rd/folders" }
+}

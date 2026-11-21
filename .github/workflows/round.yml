@@ -1,0 +1,116 @@
+# A round of the dispatcher for the gate tests. The orchestrator or a person starts it by hand.
+#
+# - The step "Do a round" is the only step with the token. The dispatcher writes one folder for each machine.
+# - The step "Start the runners" comes after it, with no secret. It starts the runner program of each folder.
+# - A job of a fork can operate in the step "Start the runners". Thus no step with a secret comes after it.
+#   The guard test holds this order. The README tells the blast radius.
+name: Round
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: round
+  cancel-in-progress: false
+
+env:
+  # The runner program and its checksum, from the release page of actions/runner. Test T3 passed on this version.
+  RUNNER_VERSION: 2.338.2
+  RUNNER_SHA256: baebf204307bac6193480852732f0aba2ae97b6c5597c244f4d5558390147c40
+  # The commit of mark1russell7/runner-dispatch with the dispatcher, the starter and the check program
+  DISPATCH_COMMIT: a245039211d24f99d04e36b4198f244c50a624c2
+
+jobs:
+  round:
+    name: A round and its runners
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions: {}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the fixtures
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          path: fixture
+
+      - name: Check out the dispatcher
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mark1russell7/runner-dispatch
+          ref: ${{ env.DISPATCH_COMMIT }}
+          persist-credentials: false
+          path: dispatch
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          package_json_file: dispatch/package.json
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+
+      - name: Install the dispatcher
+        working-directory: dispatch
+        run: pnpm install --frozen-lockfile --filter "@runner-dispatch/dispatcher..."
+
+      - name: Get the runner program
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/runner"
+          cd "$RUNNER_TEMP/runner"
+          curl -fsSL -o runner.tar.gz \
+            "https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz"
+          echo "${RUNNER_SHA256}  runner.tar.gz" | sha256sum -c -
+          tar xzf runner.tar.gz
+          rm runner.tar.gz
+
+      - name: Make the folders
+        run: |
+          set -euo pipefail
+          mkdir -p -m 700 /tmp/rd/folders
+          mkdir -p "$RUNNER_TEMP/records"
+
+      - name: Do a round
+        env:
+          RUNNER_DISPATCH_GITHUB_TOKEN: ${{ secrets.GATE_RUNNER_TOKEN }}
+        run: |
+          set -uo pipefail
+          records="$RUNNER_TEMP/records"
+          status=0
+          node dispatch/packages/dispatcher/src/bin.ts "$GITHUB_WORKSPACE/fixture/round/program.json" --round \
+            > "$records/round.log" 2> "$records/round.err" || status=$?
+          cat "$records/round.log"
+          cat "$records/round.err" >&2
+          echo "round-exit=$status" | tee -a "$records/exits.txt"
+          # The exit code 0 is a settled round, and 3 is a round with no settled pass. The runners start in each case.
+          [ "$status" = 0 ] || [ "$status" = 3 ]
+
+      - name: Start the runners
+        run: |
+          set -uo pipefail
+          records="$RUNNER_TEMP/records"
+          status=0
+          node dispatch/packages/dispatcher/src/starter-bin.ts /tmp/rd/folders \
+            --runner "$RUNNER_TEMP/runner" \
+            --check "$GITHUB_WORKSPACE/dispatch/packages/runner-dispatch/src/cli/job-started.ts" \
+            --deadline 600 \
+            > "$records/starter.log" 2> "$records/starter.err" || status=$?
+          cat "$records/starter.log"
+          cat "$records/starter.err" >&2
+          echo "starter-exit=$status" | tee -a "$records/exits.txt"
+          [ "$status" = 0 ]
+
+      - name: Keep the records
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: round-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/records
+          retention-days: 30

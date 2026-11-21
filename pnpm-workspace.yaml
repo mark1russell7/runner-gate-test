@@ -1,0 +1,15 @@
+# The settings of pnpm for this repository. It has one package, at the root.
+
+# Packages allowed to run install scripts. Since pnpm 11 every other package that has one fails the install.
+allowBuilds:
+  esbuild: true
+
+# The packages of the owner of the dispatcher: their releases have provenance, so the release age check does not apply.
+minimumReleaseAgeExclude:
+  - "@mark1russell7/*"
+
+# An install fails when a new version has less trust evidence than an earlier version of the same package.
+trustPolicy: no-downgrade
+trustPolicyIgnoreAfter: 10080
+trustPolicyExclude:
+  - "@mark1russell7/*"

@@ -1,0 +1,22 @@
+# Test T4: a run of workflow_run names the run label of its own run. The dispatcher refuses the event, so no runner starts.
+#
+# The end of a run of "Fork probe" starts this workflow. A run of this event has the token and the secrets of the base
+# repository. Thus this workflow has no checkout, no secret and the permissions {}. The guard test holds these facts.
+name: T4 workflow_run
+
+on:
+  workflow_run:
+    workflows: [Fork probe]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  probe:
+    name: Probe
+    if: ${{ github.event.workflow_run.head_repository.full_name != github.repository }}
+    runs-on: run-${{ github.run_id }}-${{ github.run_attempt }}
+    timeout-minutes: 5
+    steps:
+      - name: Tell the run
+        run: echo "A workflow_run job runs."

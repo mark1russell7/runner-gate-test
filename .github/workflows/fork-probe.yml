@@ -1,0 +1,22 @@
+# The job of a fork for tests T1 and T2. It starts only on a pull request from a fork.
+#
+# - For T1, the job names the run label of its own run.
+# - For T2, the orchestrator changes the line "runs-on" on the branch of the fork to the run label of a trusted run.
+# - The step tells that a job of a fork operates. In each test, the expected result is that the step does not start.
+name: Fork probe
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions: {}
+
+jobs:
+  probe:
+    name: Probe
+    if: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+    runs-on: run-${{ github.run_id }}-${{ github.run_attempt }}
+    timeout-minutes: 5
+    steps:
+      - name: Tell the run
+        run: echo "A job of a fork runs."
