@@ -8,8 +8,9 @@ on:
 permissions: {}
 
 jobs:
+  # The one summary check of this file. The ruleset of main needs it before a merge.
   guard:
-    name: Guard
+    name: CI OK
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions: {}
