@@ -24,6 +24,49 @@ export function afterTitle(runId) {
   return `T4 workflow_run after ${String(runId)}`;
 }
 
+/** This is the name of the secret with the token of the rounds. */
+export const TOKEN_SECRET = "GATE_RUNNER_TOKEN";
+
+/** This is the longest life of the token, in days. The README gives the terms of the token. */
+export const TOKEN_DAYS = 7;
+
+/**
+ * This function tells if the token can stay valid for the whole test. The owner makes the token before the secret
+ * gets it, so the token ends `TOKEN_DAYS` days after the time of the secret at the latest. A token can end before
+ * that time, so a round can still get the answer 401. The function `tokenRefused` finds that case.
+ *
+ * @param {string} setAt - The time when the secret got its value, the field `updated_at` of the API
+ * @param {number} now - The time of the start of the test, in milliseconds
+ * @param {number} needMs - The longest time of the test, in milliseconds
+ * @returns {{ ok: boolean, latestEnd: string, text: string }} The result and its text
+ * @throws {Error} When `setAt` is not a time
+ */
+export function tokenFresh(setAt, now, needMs) {
+  const set = Date.parse(setAt);
+  if (!Number.isFinite(set)) throw new Error(`The time ${JSON.stringify(setAt)} of the secret is not a time.`);
+  const end = set + TOKEN_DAYS * 86_400_000;
+  const latestEnd = new Date(end).toISOString();
+  const ok = now + needMs <= end;
+  const text = ok
+    ? `The token ends at ${latestEnd} at the latest, after the end of the test.`
+    : `The token can end at ${latestEnd}, before the end of the test. The test did not start, so it gives no read. Ask the owner for a new token.`;
+  return { ok, latestEnd, text };
+}
+
+// The dispatcher tells a refused request as "GitHub answered ... with the status 401." A 403 is a missing permission.
+const REFUSED = /\bwith the status 40[13]\b/;
+
+/**
+ * This function tells if GitHub refused the token in a round. Then the dispatcher could not read the runs or make a
+ * runner, so the round is no read of a test. It is not a failure of the dispatcher.
+ *
+ * @param {Array<Record<string, any>>} lines - The lines of the round
+ * @returns {boolean} `true` when a failure of a pass has the status 401 or 403
+ */
+export function tokenRefused(lines) {
+  return lines.some((line) => line.event === "pass" && (line.report?.failures ?? []).some((failure) => REFUSED.test(String(failure?.text ?? ""))));
+}
+
 /**
  * This function gives the text of fork-probe.yml with a fixed run label in place of the label of its own run.
  *
@@ -122,7 +165,13 @@ export function runInRound(lines, runId) {
   const waits = passes.flatMap((line) => line.report?.waits ?? []).filter((wait) => wait?.run?.runId === runId);
   const made = passes.flatMap((line) => line.report?.made ?? []).filter((machine) => machine?.runId === runId);
   const round = lines.find((line) => line.event === "round")?.result ?? null;
-  return { reasons: [...new Set(waits.map((wait) => wait.reason))].sort(), texts: [...new Set(waits.map((wait) => wait.text))], made: made.length, round };
+  return {
+    reasons: [...new Set(waits.map((wait) => wait.reason))].sort(),
+    texts: [...new Set(waits.map((wait) => wait.text))],
+    made: made.length,
+    round,
+    tokenRefused: tokenRefused(lines),
+  };
 }
 
 /**
@@ -140,7 +189,9 @@ export function refusedVerdict(job, seen) {
     noRunner: job.runner === null,
     noStep: !probeStarted(job),
   };
-  return { pass: Object.values(checks).every(Boolean), read: checks.readByRound, checks };
+  // A round where GitHub refused the token is no read, also when it saw the run.
+  const read = checks.readByRound && !seen.tokenRefused;
+  return { pass: read && Object.values(checks).every(Boolean), read, checks };
 }
 
 /**
@@ -149,6 +200,7 @@ export function refusedVerdict(job, seen) {
  * - When the fork job took the runner, the check refused it: the job has the conclusion failure and its step did not start.
  * - In each case, the probe step of the fork job did not start, and the trusted job ends with success on a runner.
  * - The dispatcher made no machine for the fork run.
+ * - A round where GitHub refused the token makes the test no read.
  *
  * @param {{ fork: ReturnType<typeof jobFacts>, trusted: ReturnType<typeof jobFacts>, forkSeen: Array<ReturnType<typeof runInRound>> }} facts - The facts at the end of the test
  */
@@ -160,6 +212,8 @@ export function labelVerdict(facts) {
     noMachineForFork: facts.forkSeen.every((seen) => seen.made === 0),
     trustedSuccess: facts.trusted.conclusion === "success" && facts.trusted.runner !== null,
   };
+  // A round where GitHub refused the token gives the trusted job no runner. That is no read, not a failure.
+  const read = !facts.forkSeen.some((seen) => seen.tokenRefused);
   // A test where the fork job did not take the runner does not exercise the check on the machine. It is no read of that layer.
-  return { pass: Object.values(checks).every(Boolean), forkTookRunner: tookRunner, checks };
+  return { pass: read && Object.values(checks).every(Boolean), read, forkTookRunner: tookRunner, checks };
 }

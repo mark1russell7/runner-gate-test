@@ -46,7 +46,13 @@ The secret `GATE_RUNNER_TOKEN` is a fine-grained personal access token with thes
 - It has the permission Actions read, to read the queued runs and jobs.
 - Its end date is 7 days or less after the date it is made.
 
-Revoke the token after the tests.
+Each set of tests gets a new token. After the tests, revoke the token or let it end. No round starts after the tests, so nothing uses the token.
+
+The orchestrator holds these terms:
+
+- Before a test, it reads the time of the secret, not its value. The token ends 7 days after that time at the latest.
+- When the token can end before the test ends, the test does not start. The record tells this, and it gives no read.
+- When GitHub refuses the token in a round with the status 401 or 403, the test gives no read. An ended token is not a fault of the dispatcher.
 
 ## The blast radius
 

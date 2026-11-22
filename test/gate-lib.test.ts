@@ -1,6 +1,20 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { AFTER_LINE, afterTitle, jobFacts, labelVerdict, mayApprove, PROBE_STEP, probeStarted, refusedVerdict, roundLines, runInRound } from "../scripts/gate-lib.mjs";
+import {
+  AFTER_LINE,
+  afterTitle,
+  jobFacts,
+  labelVerdict,
+  mayApprove,
+  PROBE_STEP,
+  probeStarted,
+  refusedVerdict,
+  roundLines,
+  runInRound,
+  TOKEN_DAYS,
+  tokenFresh,
+  tokenRefused,
+} from "../scripts/gate-lib.mjs";
 
 const fork = "gate-fork-owner/runner-gate-test";
 const pushed = ["a".repeat(40)];
@@ -38,8 +52,47 @@ describe("the lines of a round", () => {
     ].join("\n");
     const lines = roundLines(log);
     expect(lines.map((line) => line.event)).toEqual(["pass", "round"]);
-    expect(runInRound(lines, 70)).toEqual({ reasons: ["trust"], texts: ["t"], made: 0, round: { settled: true } });
+    expect(runInRound(lines, 70)).toEqual({ reasons: ["trust"], texts: ["t"], made: 0, round: { settled: true }, tokenRefused: false });
     expect(runInRound(lines, 71)).toMatchObject({ reasons: [], made: 0 });
+  });
+});
+
+// The dispatcher puts the text of an error in quotes, as in the record of a round on 2026-11-21.
+const failed = (status: number) =>
+  JSON.stringify({ event: "pass", report: { waits: [], made: [], failures: [{ request: "view", text: `"GitHub answered the list /repos/o/r/actions/runs with the status ${status}."` }] } });
+
+describe("the token", () => {
+  const setAt = "2026-11-22T01:10:31Z";
+  const set = Date.parse(setAt);
+  const hours = (count: number) => count * 3_600_000;
+
+  it("lets a test start when the token can stay valid until its end", () => {
+    expect(tokenFresh(setAt, set + hours(24), hours(2))).toMatchObject({ ok: true, latestEnd: "2026-11-29T01:10:31.000Z" });
+    expect(tokenFresh(setAt, set + TOKEN_DAYS * hours(24) - hours(2), hours(2)).ok).toBe(true);
+  });
+
+  it("stops a test that can end after the token", () => {
+    const late = tokenFresh(setAt, set + TOKEN_DAYS * hours(24) - hours(1), hours(2));
+    expect(late.ok).toBe(false);
+    expect(late.text).toMatch(/no read/);
+    expect(() => tokenFresh("not a time", set, 0)).toThrow(/not a time/);
+  });
+
+  it("finds a round where GitHub refused the token", () => {
+    expect(tokenRefused(roundLines(failed(401)))).toBe(true);
+    expect(tokenRefused(roundLines(failed(403)))).toBe(true);
+    expect(tokenRefused(roundLines(failed(404)))).toBe(false);
+    expect(tokenRefused(roundLines(failed(4010)))).toBe(false);
+    expect(tokenRefused(roundLines(pass([])))).toBe(false);
+  });
+
+  it("makes a round with a refused token no read, never a pass", () => {
+    const refused = { ...runInRound(roundLines(pass([{ run: { runId: 70 }, jobs: 1, reason: "trust", text: "t" }])), 70), tokenRefused: true };
+    expect(refusedVerdict(job(), refused)).toMatchObject({ pass: false, read: false });
+    const taken = job({ status: "completed", conclusion: "failure", runner_name: "gate-1" });
+    const trusted = job({ id: 8, run_id: 80, name: "Target", status: "completed", conclusion: "success", runner_name: "gate-2" });
+    const seen = runInRound(roundLines(failed(401)), 70);
+    expect(labelVerdict({ fork: taken, trusted, forkSeen: [seen] })).toMatchObject({ pass: false, read: false });
   });
 });
 

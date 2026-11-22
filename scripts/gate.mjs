@@ -10,7 +10,10 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { afterTitle, jobFacts, labelVerdict, mayApprove, refusedVerdict, roundLines, runInRound, withLabel } from "./gate-lib.mjs";
+import { afterTitle, jobFacts, labelVerdict, mayApprove, refusedVerdict, roundLines, runInRound, TOKEN_SECRET, tokenFresh, withLabel } from "./gate-lib.mjs";
+
+// The longest time of a test: the waits for the runs and the jobs, and two rounds of at most 33 minutes each.
+const TEST_MS = 2 * 60 * 60_000;
 
 const USAGE = "Usage: node scripts/gate.mjs <t1|t2> --fork <owner>/<repo> --out <folder> [--repo <owner>/<repo>] [--hold <s>]";
 const NAME = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100}$/;
@@ -215,6 +218,19 @@ async function main() {
   const out = resolve(options.out);
   mkdirSync(out, { recursive: true });
   const path = join(out, `${options.test}-${nonce}.json`);
+  // The test starts only when the token can stay valid until its end. The read gives the time of the secret, not its value.
+  const secret = api(`repos/${options.repo}/actions/secrets/${TOKEN_SECRET}`);
+  const token = tokenFresh(secret.updated_at, Date.now(), TEST_MS);
+  record.token = { setAt: secret.updated_at, latestEnd: token.latestEnd };
+  if (!token.ok) {
+    record.notes.push(token.text);
+    record.endedAt = new Date().toISOString();
+    writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`);
+    console.error(token.text);
+    console.log(path);
+    process.exitCode = 2;
+    return;
+  }
   try {
     if (options.test === "t1") await testT1(options, nonce, record);
     else await testT2(options, nonce, record);
