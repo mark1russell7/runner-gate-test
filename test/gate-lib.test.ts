@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { jobFacts, labelVerdict, mayApprove, PROBE_STEP, probeStarted, refusedVerdict, roundLines, runInRound } from "../scripts/gate-lib.mjs";
+import { AFTER_LINE, afterTitle, jobFacts, labelVerdict, mayApprove, PROBE_STEP, probeStarted, refusedVerdict, roundLines, runInRound } from "../scripts/gate-lib.mjs";
 
 const fork = "gate-fork-owner/runner-gate-test";
 const pushed = ["a".repeat(40)];
@@ -81,5 +82,20 @@ describe("labelVerdict", () => {
     expect(probeStarted(ran)).toBe(true);
     expect(labelVerdict({ fork: ran, trusted, forkSeen: none }).pass).toBe(false);
     expect(labelVerdict({ fork: job(), trusted: { ...trusted, conclusion: "cancelled" }, forkSeen: none }).pass).toBe(false);
+  });
+});
+
+describe("the run of t4-run.yml after a run", () => {
+  it("has the name that the orchestrator finds", () => {
+    const lines = readFileSync(new URL("../.github/workflows/t4-run.yml", import.meta.url), "utf8").split(/\r?\n/);
+    expect(lines.filter((line) => line === AFTER_LINE)).toHaveLength(1);
+    // GitHub puts the id of the run that ended in place of the expression.
+    expect(AFTER_LINE.replace("run-name: ", "").replace("${{ github.event.workflow_run.id }}", "44970582338")).toBe(afterTitle(44970582338));
+  });
+
+  it("refuses an id that is not a positive integer", () => {
+    expect(() => afterTitle(0)).toThrow(/positive integer/);
+    expect(() => afterTitle(1.5)).toThrow(/positive integer/);
+    expect(() => afterTitle(Number.NaN)).toThrow(/positive integer/);
   });
 });
