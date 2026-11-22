@@ -9,6 +9,21 @@ export const PROBE_STEP = "Tell the run";
 
 const RUN_LABEL = /^run-[1-9]\d{0,19}-[1-9]\d{0,3}$/;
 
+/** This is the `run-name` line of .github/workflows/t4-run.yml. */
+export const AFTER_LINE = "run-name: T4 workflow_run after ${{ github.event.workflow_run.id }}";
+
+/**
+ * This function gives the name of the run of t4-run.yml that the end of a run starts.
+ * The head of a run of `workflow_run` is the default branch, so only this name links the two runs.
+ *
+ * @param {number} runId - The id of the run that ended, a run of fork-probe.yml
+ * @returns {string} The display title of the run of t4-run.yml
+ */
+export function afterTitle(runId) {
+  if (!Number.isSafeInteger(runId) || runId <= 0) throw new Error(`The run id ${String(runId)} is not a positive integer.`);
+  return `T4 workflow_run after ${String(runId)}`;
+}
+
 /**
  * This function gives the text of fork-probe.yml with a fixed run label in place of the label of its own run.
  *

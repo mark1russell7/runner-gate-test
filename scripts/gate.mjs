@@ -10,7 +10,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { jobFacts, labelVerdict, mayApprove, refusedVerdict, roundLines, runInRound, withLabel } from "./gate-lib.mjs";
+import { afterTitle, jobFacts, labelVerdict, mayApprove, refusedVerdict, roundLines, runInRound, withLabel } from "./gate-lib.mjs";
 
 const USAGE = "Usage: node scripts/gate.mjs <t1|t2> --fork <owner>/<repo> --out <folder> [--repo <owner>/<repo>] [--hold <s>]";
 const NAME = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100}$/;
@@ -59,9 +59,9 @@ const jobsOf = (repo, runId) => api(`repos/${repo}/actions/runs/${runId}/jobs?pe
 const titledRun = (repo, workflow, event, nonce, limit) =>
   waitFor(`a run of ${workflow} for ${nonce}`, () => runsOf(repo, workflow, event).find((run) => String(run.display_title ?? "").includes(nonce)), { limit });
 
-/** This function waits for a run of a workflow whose head commit is a commit of the test. A run of workflow_run has the head of the run that started it. */
-const pushedRun = (repo, workflow, event, pushed, limit) =>
-  waitFor(`a run of ${workflow} on a commit of the test`, () => runsOf(repo, workflow, event).find((run) => pushed.includes(run.head_sha)), { limit });
+/** This function waits for the run of t4-run.yml that the end of a run starts. Its head is the default branch, so the match is on its name. */
+const afterRun = (repo, runId, limit) =>
+  waitFor(`the run of t4-run.yml after ${runId}`, () => runsOf(repo, "t4-run.yml", "workflow_run").find((run) => run.display_title === afterTitle(runId)), { limit });
 
 /** This function waits until the job of a run asks for a runner. */
 const queuedJob = (repo, runId, limit) => waitFor(`a queued job of the run ${runId}`, () => jobsOf(repo, runId).find((job) => job.status === "queued"), { limit });
@@ -164,7 +164,7 @@ async function testT1(options, nonce, record) {
 
   // The end of the fork probe starts the workflow T4 workflow_run.
   send("POST", `repos/${options.repo}/actions/runs/${probe.id}/cancel`);
-  const after = await pushedRun(options.repo, "t4-run.yml", "workflow_run", pushed, 5 * 60_000);
+  const after = await afterRun(options.repo, probe.id, 5 * 60_000);
   record.runs.push(after.id);
   await queuedJob(options.repo, after.id, 5 * 60_000);
   const second = await round(options.repo);
@@ -224,11 +224,15 @@ async function main() {
   } finally {
     cancelOpen(options.repo, record.runs, record.notes);
     await cleanUp(options, nonce, record.pull, record.notes);
-    // The end of a cancelled fork probe starts one more run of T4 workflow_run. It waits for a runner, so cancel it too.
+    // The end of a fork probe starts one more run of T4 workflow_run, and the pull request of T2 starts a run of T4
+    // pull_request_target. Each waits for a runner, so cancel them too.
     try {
       await sleep(20_000);
-      const pushed = record.pull?.pushed ?? [];
-      const late = runsOf(options.repo, "t4-run.yml", "workflow_run").filter((run) => pushed.includes(run.head_sha) && !record.runs.includes(run.id));
+      const titles = new Set(record.runs.map((id) => afterTitle(id)));
+      const late = [
+        ...runsOf(options.repo, "t4-run.yml", "workflow_run").filter((run) => titles.has(run.display_title)),
+        ...runsOf(options.repo, "t4-target.yml", "pull_request_target").filter((run) => String(run.display_title ?? "").includes(nonce)),
+      ].filter((run) => !record.runs.includes(run.id));
       cancelOpen(options.repo, late.map((run) => run.id), record.notes);
     } catch (error) {
       record.notes.push(`The read of the late runs failed: ${String(error).split("\n")[0]}`);

@@ -3,6 +3,9 @@
 # The end of a run of "Fork probe" starts this workflow. A run of this event has the token and the secrets of the base
 # repository. Thus this workflow has no checkout, no secret and the permissions {}. The guard test holds these facts.
 name: T4 workflow_run
+# The head of a run of workflow_run is the default branch, not the head of the run that started it. Thus the name of
+# the run carries the id of that run, and the orchestrator finds the run by this name. The id is a number of GitHub.
+run-name: T4 workflow_run after ${{ github.event.workflow_run.id }}
 
 on:
   workflow_run:
