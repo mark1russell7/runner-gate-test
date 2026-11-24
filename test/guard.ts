@@ -5,7 +5,8 @@
  * The rules:
  *
  * - `parses`: the file parses as one YAML 1.2 document. A file with a fault gets no other rule.
- * - `permissions`: the workflow has the permissions `{}`, and each job has no permissions or `{}`.
+ * - `permissions`: the workflow has the permissions `{}`, and each job has no permissions or `{}`. A job of
+ *   {@link HOSTED_JOBS} can have the scopes of its record.
  * - `privileged-checkout`: a workflow with a privileged trigger has no checkout.
  * - `privileged-secrets`: a workflow with a privileged trigger reads no secret.
  * - `privileged-calls`: a workflow with a privileged trigger calls no workflow and no action. Their steps are out of sight of the guard.
@@ -17,6 +18,10 @@
  * `env` of the job and in a step before the start, with the same name, passes. The rule cannot see it until the reader
  * gives the secrets of the `env` of a job apart. The blast radius of the README is the same in each case: the outer
  * job has the token in its memory for the whole job.
+ *
+ * A limit of `permissions`: the reader gives no runner of a job (`runs-on`). Thus the guard cannot tell a job on a
+ * runner of GitHub from a job on a runner of the pool. {@link HOSTED_JOBS} names each job on a runner of GitHub that
+ * needs a scope. The list ends when the reader gives the runner of a job: the rule then examines the runner.
  */
 import type { ParsedWorkflow, WorkflowPermissions } from "@mark1russell7/conventions";
 
@@ -36,6 +41,31 @@ export interface GuardFault {
 /** This function tells if the permissions give no scope: the record `{}`. */
 function isNoScope(permissions: WorkflowPermissions): boolean {
   return permissions !== null && typeof permissions === "object" && Object.keys(permissions).length === 0;
+}
+
+/** This record is one job of a standard workflow on a runner of GitHub, with the most permissions of its work. */
+export interface HostedJob {
+  readonly file: string;
+  readonly job: string;
+  readonly permissions: Readonly<Record<string, string>>;
+}
+
+/**
+ * These jobs run on a runner of GitHub, not on a runner of the pool, and their work needs scopes. The guard passes each
+ * one with no scope and no level that its record does not have. A workflow with a privileged trigger gets no such job.
+ *
+ * - `security-ok` of `security.yml`: the security scans of the template. The scope `security-events: write` uploads the
+ *   results, and `actions: read` lets the upload read the run.
+ */
+export const HOSTED_JOBS: readonly HostedJob[] = [
+  { file: "security.yml", job: "security-ok", permissions: { contents: "read", "security-events": "write", actions: "read" } },
+];
+
+/** This function tells if the permissions are a record with no scope and no level that `most` does not have. */
+function isWithin(permissions: WorkflowPermissions, most: Readonly<Record<string, string>>): boolean {
+  if (permissions === null || typeof permissions !== "object") return false;
+  const record = permissions;
+  return Object.keys(record).every((scope) => Object.hasOwn(most, scope) && record[scope] === most[scope]);
 }
 
 /** This function tells if an action is the checkout action, in each form of its name. */
@@ -58,11 +88,16 @@ export function guardWorkflow(workflow: ParsedWorkflow): GuardFault[] {
   if (workflow.faults.length > 0) return faults;
 
   if (!isNoScope(workflow.permissions)) add("permissions", `The workflow has the permissions ${JSON.stringify(workflow.permissions)}, not {}.`);
+  const privileged = workflow.triggers.filter((trigger) => PRIVILEGED_TRIGGERS.includes(trigger));
   for (const job of workflow.jobs) {
-    if (job.permissions !== null && !isNoScope(job.permissions)) add("permissions", `The job ${job.id} has the permissions ${JSON.stringify(job.permissions)}, not {}.`);
+    if (job.permissions === null || isNoScope(job.permissions)) continue;
+    // A privileged trigger gives the token of the base repository to a pull request from a fork, so it gets no hosted job.
+    const hosted = privileged.length === 0 ? HOSTED_JOBS.find((each) => each.file === workflow.file && each.job === job.id) : undefined;
+    if (hosted !== undefined && isWithin(job.permissions, hosted.permissions)) continue;
+    const most = hosted === undefined ? "" : ` and not within ${JSON.stringify(hosted.permissions)}`;
+    add("permissions", `The job ${job.id} has the permissions ${JSON.stringify(job.permissions)}, not {}${most}.`);
   }
 
-  const privileged = workflow.triggers.filter((trigger) => PRIVILEGED_TRIGGERS.includes(trigger));
   if (privileged.length > 0) {
     const name = privileged.join(" and ");
     for (const job of workflow.jobs) {

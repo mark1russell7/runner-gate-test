@@ -4,16 +4,21 @@ import { fileURLToPath } from "node:url";
 import { parseWorkflow } from "@mark1russell7/conventions";
 import { describe, expect, it } from "vitest";
 import { LABEL_LINE, withLabel } from "../scripts/gate-lib.mjs";
-import { guardWorkflow, PRIVILEGED_TRIGGERS, STARTER_STEP } from "./guard.ts";
+import { guardWorkflow, HOSTED_JOBS, PRIVILEGED_TRIGGERS, STARTER_STEP } from "./guard.ts";
 
 const folder = fileURLToPath(new URL("../.github/workflows/", import.meta.url));
 const files = readdirSync(folder).filter((name) => /\.ya?ml$/.test(name)).sort();
 const read = (name: string) => parseWorkflow(name, readFileSync(join(folder, name), "utf8"));
 const rulesOf = (text: string) => guardWorkflow(parseWorkflow("planted.yml", text)).map((fault) => fault.rule);
 
+/** These files are the workflows of the tests of this repository. */
+const TESTS = ["ci.yml", "fork-probe.yml", "round.yml", "t4-run.yml", "t4-target.yml", "trusted.yml"];
+/** These files are the standard workflows of the template. An update of the conventions adds each one. */
+const STANDARD = ["security.yml"];
+
 describe("the workflows of the repository", () => {
-  it("has the workflows of the tests", () => {
-    expect(files).toEqual(["ci.yml", "fork-probe.yml", "round.yml", "t4-run.yml", "t4-target.yml", "trusted.yml"]);
+  it("has the workflows of the tests, and no other workflow than a standard one", () => {
+    expect(files.filter((name) => !STANDARD.includes(name))).toEqual(TESTS);
   });
 
   it.each(files)("%s passes the guard", (name) => {
@@ -124,6 +129,59 @@ describe("the guard refuses each planted fault", () => {
     expect(rulesOf(job)).toEqual(["starter-order"]);
     const top = `on: workflow_dispatch\npermissions: {}\nenv:\n  T: \${{ secrets.WIDE }}\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - name: ${STARTER_STEP}\n        run: echo b\n`;
     expect(rulesOf(top)).toEqual(["starter-order"]);
+  });
+});
+
+describe("the jobs on a runner of GitHub that need a scope", () => {
+  const scopes = ["contents: read", "security-events: write", "actions: read"];
+  const security = (lines: readonly string[], on = "on:\n  pull_request:\n  push:\n    branches: [main]", job = "security-ok") =>
+    `name: Security\n${on}\npermissions: {}\njobs:\n  ${job}:\n    runs-on: ubuntu-latest\n    permissions:\n${lines.map((line) => `      ${line}`).join("\n")}\n    steps:\n      - name: Scan\n        run: echo scan\n`;
+  const faultsIn = (file: string, text: string) => guardWorkflow(parseWorkflow(file, text));
+  const rulesIn = (file: string, text: string) => faultsIn(file, text).map((fault) => fault.rule);
+
+  it("names only the job of the security scans", () => {
+    expect(HOSTED_JOBS).toEqual([{ file: "security.yml", job: "security-ok", permissions: { contents: "read", "security-events": "write", actions: "read" } }]);
+  });
+
+  it("passes the job with the permissions of its record, in each order, and with fewer scopes", () => {
+    expect(faultsIn("security.yml", security(scopes))).toEqual([]);
+    expect(rulesIn("security.yml", security([...scopes].reverse()))).toEqual([]);
+    expect(rulesIn("security.yml", security(["contents: read"]))).toEqual([]);
+  });
+
+  it("refuses one more scope, a higher level and the text forms", () => {
+    expect(rulesIn("security.yml", security([...scopes, "id-token: write"]))).toEqual(["permissions"]);
+    expect(rulesIn("security.yml", security(["contents: write", "security-events: write", "actions: read"]))).toEqual(["permissions"]);
+    const all = security(scopes).replace(`    permissions:\n${scopes.map((line) => `      ${line}`).join("\n")}`, "    permissions: write-all");
+    expect(all).toContain("permissions: write-all");
+    expect(rulesIn("security.yml", all)).toEqual(["permissions"]);
+    expect(rulesIn("security.yml", all.replace("write-all", "read-all"))).toEqual(["permissions"]);
+  });
+
+  it("tells the record in the fault", () => {
+    expect(faultsIn("security.yml", security(["id-token: write"]))).toEqual([
+      { file: "security.yml", rule: "permissions", problem: 'The job security-ok has the permissions {"id-token":"write"}, not {} and not within {"contents":"read","security-events":"write","actions":"read"}.' },
+    ]);
+  });
+
+  it("refuses the same permissions in another job and in another file", () => {
+    expect(rulesIn("security.yml", security(scopes, undefined, "other"))).toEqual(["permissions"]);
+    expect(rulesIn("planted.yml", security(scopes))).toEqual(["permissions"]);
+    expect(rulesIn("Security.yml", security(scopes))).toEqual(["permissions"]);
+  });
+
+  it("refuses the permissions in a workflow with a privileged trigger", () => {
+    expect(rulesIn("security.yml", security(scopes, "on:\n  pull_request_target:"))).toEqual(["permissions"]);
+    expect(rulesIn("security.yml", security(scopes, "on: [push, workflow_run]"))).toEqual(["permissions"]);
+  });
+
+  it("keeps the workflow permissions {} for the file of the job", () => {
+    expect(rulesIn("security.yml", security(scopes).replace("permissions: {}", "permissions:\n  contents: read"))).toEqual(["permissions"]);
+  });
+
+  // The limit of the rule: the reader gives no runner of a job. This test changes when the rule examines the runner.
+  it("cannot examine the runner of the job, so a run label passes too", () => {
+    expect(rulesIn("security.yml", security(scopes).replace("runs-on: ubuntu-latest", "runs-on: run-1-1"))).toEqual([]);
   });
 });
 

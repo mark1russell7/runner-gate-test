@@ -23,7 +23,9 @@ This repository holds the workflows that the gate tests of [runner-dispatch](htt
 | `t4-run.yml` | `workflow_run` | Its job asks for a runner after a run of `fork-probe.yml`. It has the same limits. |
 | `ci.yml` | `pull_request` | It runs the guard test. |
 
-Each workflow and each job has the permissions `{}`. Each action has a pin to a commit.
+Each workflow and each job of the tests has the permissions `{}`. Each action has a pin to a commit.
+
+An update of the conventions adds the standard workflow `security.yml` of the [template](https://github.com/mark1russell7/template). It is not a test. Its job `security-ok` does the security scans on a runner of GitHub, with the scopes of the scans.
 
 ## The round
 
@@ -71,7 +73,7 @@ The test `test/guard.test.ts` reads each workflow with `parseWorkflow` of [`@mar
 | Rule | The rule holds when |
 | --- | --- |
 | `parses` | The file is one YAML 1.2 document with no fault. |
-| `permissions` | The workflow has the permissions `{}`, and each job has no permissions or `{}`. |
+| `permissions` | The workflow has the permissions `{}`, and each job has no permissions or `{}`. A job of the list `HOSTED_JOBS` has no scope that its record does not have. |
 | `privileged-checkout` | A workflow of `pull_request_target` or `workflow_run` has no checkout. |
 | `privileged-secrets` | A workflow of `pull_request_target` or `workflow_run` reads no secret. |
 | `privileged-calls` | A workflow of `pull_request_target` or `workflow_run` calls no workflow and no action. |
@@ -79,6 +81,10 @@ The test `test/guard.test.ts` reads each workflow with `parseWorkflow` of [`@mar
 | `starter-order` | No secret is in the step `Start the runners`, in a step after it, or in the `env` of its job or workflow. |
 
 The test also plants each fault in a small workflow and checks that the guard refuses it.
+
+The list `HOSTED_JOBS` of the guard names each job on a runner of GitHub that needs a scope. It has one job: `security-ok` of `security.yml`. A workflow of `pull_request_target` or `workflow_run` gets no such job.
+
+The list has a limit. The reader gives no runner of a job, so the guard cannot examine `runs-on`. Thus the list names a job by its file and its id. The list ends when the reader gives the runner of a job.
 
 This repository has no shared CI workflows. Each workflow here must pass the guard, and shared workflows can have other triggers and secrets.
 
