@@ -6,10 +6,13 @@ allowBuilds:
 
 # The packages of the owner of the dispatcher: their releases have provenance, so the release age check does not apply.
 minimumReleaseAgeExclude:
+  # Our own packages: the release train updates them, so the release age check of pnpm does not apply to them.
   - "@mark1russell7/*"
+  - "@procedures/*"
 
 # An install fails when a new version has less trust evidence than an earlier version of the same package.
 trustPolicy: no-downgrade
 trustPolicyIgnoreAfter: 10080
 trustPolicyExclude:
   - "@mark1russell7/*"
+  - "@procedures/*"
