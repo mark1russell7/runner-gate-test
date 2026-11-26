@@ -21,7 +21,7 @@ This repository holds the workflows that the gate tests of [runner-dispatch](htt
 | `fork-probe.yml` | `pull_request` | Its job asks for a runner only on a pull request from a fork. |
 | `t4-target.yml` | `pull_request_target` | Its job asks for a runner. It has no checkout, no secret and the permissions `{}`. |
 | `t4-run.yml` | `workflow_run` | Its job asks for a runner after a run of `fork-probe.yml`. It has the same limits. |
-| `ci.yml` | `pull_request` | It runs the guard test. |
+| `ci.yml` | `pull_request` | It starts the typecheck, the guard test and the conventions check. |
 
 Each workflow and each job of the tests has the permissions `{}`. Each action has a pin to a commit.
 

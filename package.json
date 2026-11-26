@@ -10,11 +10,44 @@
     "node": ">=24"
   },
   "scripts": {
-    "test": "vitest run"
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
+    "test": "vitest run",
+    "check:conventions": "conventions check"
   },
   "devDependencies": {
-    "@mark1russell7/conventions": "^0.53.1",
+    "@mark1russell7/conventions": "^0.53.2",
+    "@mark1russell7/cue": "^2.1.4",
+    "@types/node": "^25.0.2",
     "@vitest/coverage-v8": "^5.0.3",
+    "typescript": "^5.9.3",
     "vitest": "^5.0.3"
+  },
+  "conventions": {
+    "rules": {
+      "no-console": {
+        "baseline": 0,
+        "failFrom": "2027-01-20",
+        "reason": "The census of 2026-11-25 found no console call in the source and the tests. A new call fails at once, and each call fails from 2027-01-20."
+      },
+      "typed-scripts": {
+        "ignore": [
+          "scripts/gate.mjs",
+          "scripts/gate-lib.mjs"
+        ],
+        "reason": "The two scripts are JavaScript with JSDoc types. tsc reads those types for the tests that import gate-lib.mjs, but it does not check the scripts: with checkJs, the strict preset finds 106 errors. It ends when the scripts become TypeScript files."
+      },
+      "shared-ci": {
+        "ignore": [
+          ".github/workflows/ci.yml"
+        ],
+        "reason": "Each workflow of this repository must pass the guard of test/guard.ts, and a shared workflow can bring other triggers, permissions and secrets (README, The guard). Thus ci.yml keeps its own steps."
+      },
+      "pages-site": {
+        "ignore": [
+          ".github/workflows/pages.yml"
+        ],
+        "reason": "This repository holds only the fixtures of the gate tests of runner-dispatch, so it has no site. The Pages workflow of the template is a shared workflow, and the guard of test/guard.ts refuses a call of a shared workflow. The exception holds while the guard has that rule."
+      }
+    }
   }
 }
