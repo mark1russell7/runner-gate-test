@@ -51,7 +51,7 @@ describe("the lines of a round", () => {
       JSON.stringify({ no: "event" }),
     ].join("\n");
     const lines = roundLines(log);
-    expect(lines.map((line) => line.event)).toEqual(["pass", "round"]);
+    expect(lines.map((line) => line["event"])).toEqual(["pass", "round"]);
     expect(runInRound(lines, 70)).toEqual({ reasons: ["trust"], texts: ["t"], made: 0, round: { settled: true }, tokenRefused: false });
     expect(runInRound(lines, 71)).toMatchObject({ reasons: [], made: 0 });
   });

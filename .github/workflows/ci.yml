@@ -1,4 +1,4 @@
-# The guard test of the workflows of this repository, on each pull request.
+# The guard test of the workflows of this repository, the typecheck and the conventions check, on each pull request.
 name: CI
 
 on:
@@ -35,5 +35,12 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      - name: Typecheck
+        run: pnpm typecheck
+
       - name: Test
         run: pnpm test
+
+      # Each rule of @mark1russell7/conventions, with the settings in package.json
+      - name: Conventions check
+        run: pnpm check:conventions

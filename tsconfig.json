@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "@mark1russell7/cue/ts/config/node.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "composite": false,
+    "incremental": false,
+    "declaration": false,
+    "declarationMap": false,
+    "isolatedDeclarations": false,
+    "allowJs": true,
+    "checkJs": false,
+    "rootDir": "${configDir}",
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "scripts/**/*"
+  ]
+}
