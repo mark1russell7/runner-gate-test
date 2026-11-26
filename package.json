@@ -41,6 +41,12 @@
           ".github/workflows/ci.yml"
         ],
         "reason": "Each workflow of this repository must pass the guard of test/guard.ts, and a shared workflow can bring other triggers, permissions and secrets (README, The guard). Thus ci.yml keeps its own steps."
+      },
+      "pages-site": {
+        "ignore": [
+          ".github/workflows/pages.yml"
+        ],
+        "reason": "This repository holds only the fixtures of the gate tests of runner-dispatch, so it has no site. The Pages workflow of the template is a shared workflow, and the guard of test/guard.ts refuses a call of a shared workflow. The exception holds while the guard has that rule."
       }
     }
   }
